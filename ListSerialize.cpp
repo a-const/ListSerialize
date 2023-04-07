@@ -1,51 +1,46 @@
 #include "ListSerialize.h"
 
-IMAGE_TYPE* ListRand::Pack(ListNode* node) {
-    IMAGE_TYPE* image = new IMAGE_TYPE();
-    if (!node) 
-        return image;
-    std::map<ListNode*, std::uint32_t>* indexed_list = new std::map<ListNode*, std::uint32_t>;
-    std::uint32_t index = 1;
-    try {
-        while (node) {
-            indexed_list->insert({ node,index++ });
-            if (node->Next && node->Next->Prev != node) break;
-            node = node->Next;
-        }
-        this->Count = --index;
-        for (auto iter = indexed_list->begin(); iter != indexed_list->end(); iter++) {
-            meta.at(CURRENT) = iter->second;
-            meta.at(NEXT) = iter->second + 1;
-            meta.at(PREVIOUS) = iter->second - 1;
-            meta.at(RANDOM_TO) = indexed_list->at(iter->first->Rand);
-            meta.at(LENGTH) = static_cast<std::uint32_t>(iter->first->Data.size());
-            image->insert({ meta, iter->first->Data.data() });
-        }
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Pack error! Error type: " << typeid(e).name() << std::endl;
-    }
-    indexed_list->clear();
-    delete indexed_list;
-    return image;
-
-}
-
-
 void ListRand::Serialize(std::ofstream& file_stream) {
     if (file_stream.fail()) {
         std::cout << "File error!" << std::endl;
         return;
     }
-    IMAGE_TYPE* image = this->Pack(this->Head);
-    file_stream.write(reinterpret_cast<const char*>(&(this->Count)), sizeof((this->Count)));
-    for (auto iter_image = image->begin(); iter_image != image->end(); iter_image++) {
-        for (auto iter_meta = iter_image->first.begin(); iter_meta != iter_image->first.end(); iter_meta++)
-            file_stream.write(reinterpret_cast<const char*>(&*iter_meta), sizeof(*iter_meta));
-        file_stream.write(iter_image->second.data(), iter_image->second.size());
+    ListNode* node = this->Head;
+    std::uint32_t index = 1;
+    std::unordered_map<ListNode*, std::uint32_t>* indexed_list = new std::unordered_map<ListNode*, std::uint32_t>;
+    try {
+        while (node) {
+            indexed_list->insert({ node,index++ });
+            if (node->Next && node->Next->Prev != node) break; // check for looping of list
+            node = node->Next;
+        }
+        file_stream.write(reinterpret_cast<const char*>(&(--index)), sizeof((this->Count)));
+        index = 0;
+        for (auto iter_list = indexed_list->begin(); iter_list != indexed_list->end(); iter_list++) {
+            //previous index
+            index = iter_list->second - 1;
+            file_stream.write(reinterpret_cast<const char*>(&index), 4);
+            //current index
+            index = iter_list->second;
+            file_stream.write(reinterpret_cast<const char*>(&index), 4);
+            //next index
+            index = iter_list->second + 1;
+            file_stream.write(reinterpret_cast<const char*>(&index), 4);
+            //rand index
+            index = indexed_list->at(iter_list->first->Rand);
+            file_stream.write(reinterpret_cast<const char*>(&index), 4);
+            //length of data
+            std::uint32_t data_size = iter_list->first->Data.size();
+            file_stream.write(reinterpret_cast<const char*>(&data_size), 4);
+            //data itself
+            file_stream.write(iter_list->first->Data.data(), iter_list->first->Data.size());
+        }
     }
-    image->clear();
-    delete image;
+    catch (const std::exception& e) {
+        std::cerr << "Serialize error! Error type: " << typeid(e).name() << std::endl;
+    }
+    indexed_list->clear();
+    delete indexed_list;
 }
 
 void ListRand::Deserialize(std::ifstream& file_stream) {
@@ -53,56 +48,53 @@ void ListRand::Deserialize(std::ifstream& file_stream) {
         std::cout << "File error!" << std::endl;
         return;
     }
-    IMAGE_TYPE* image = new IMAGE_TYPE();
-    std::map<std::uint32_t, ListNode*>* indexed_list = new std::map<std::uint32_t, ListNode*>;
+    std::unordered_map<std::uint32_t, ListNode*> indexed_list;
     char tmp[sizeof(std::uint32_t)];
-    try{
+    std::uint32_t prev;
+    std::uint32_t current;
+    std::uint32_t next;
+    std::uint32_t length;
+    std::uint32_t rand;
+
+    try {
         file_stream.read(tmp, sizeof(std::uint32_t));
         memcpy(&(this->Count), tmp, sizeof(std::uint32_t));
-        for (int image_index = 0; image_index < this->Count; image_index++) {
-            std::vector<std::uint32_t> vec_tmp{ 0,0,0,0,0 };
-            for (int meta_index = 0; meta_index < META::SIZE; meta_index++) {
-                file_stream.read(tmp, sizeof(std::uint32_t));
-                memcpy(&vec_tmp[meta_index], tmp, sizeof(std::uint32_t));
-            }
-            char* data_tmp = new char[vec_tmp.at(LENGTH)];
-            file_stream.read(data_tmp, vec_tmp.at(LENGTH));
-            std::string data(data_tmp, data_tmp + vec_tmp.at(LENGTH));
-            image->insert({ vec_tmp,data });
-            indexed_list->insert({ vec_tmp.at(CURRENT),new ListNode() });
-            delete[] data_tmp;
+        for (int i = 1; i <= this->Count; i++) {
+            indexed_list[i] = new ListNode();
+        }
+        this->Head = indexed_list[1];
+        this->Tail = indexed_list[this->Count];
+
+        for (int i = 1; i <= this->Count; i++) {
+            file_stream.read(tmp, sizeof(std::uint32_t));
+            memcpy(&prev, tmp, sizeof(std::uint32_t));
+
+            file_stream.read(tmp, sizeof(std::uint32_t));
+            memcpy(&current, tmp, sizeof(std::uint32_t));
+
+            file_stream.read(tmp, sizeof(std::uint32_t));
+            memcpy(&next, tmp, sizeof(std::uint32_t));
+
+            file_stream.read(tmp, sizeof(std::uint32_t));
+            memcpy(&rand, tmp, sizeof(std::uint32_t));
+
+            file_stream.read(tmp, sizeof(std::uint32_t));
+            memcpy(&length, tmp, sizeof(std::uint32_t));
+
+            char* data_tmp = new char[length];
+            file_stream.read(data_tmp, length);
+            std::string data(data_tmp, data_tmp + length);
+
+            indexed_list[i]->Data = data;
+            if (next <= this->Count) indexed_list[i]->Next = indexed_list[next];
+            if (!prev) indexed_list[i]->Prev = indexed_list[prev];
+            indexed_list[i]->Rand = indexed_list[rand];
+
+
         }
     }
     catch (const std::exception& e) {
         std::cerr << "Deserialize error! Error type: " << typeid(e).name() << std::endl;
     }
-    this->Associate(image, indexed_list);
-}
-
-void ListRand::Associate(IMAGE_TYPE* image, std::map<std::uint32_t, ListNode*>* indexed_list) {
-    ListNode* node = indexed_list->begin()->second;
-    this->Head = node;
-    std::map<std::uint32_t, ListNode*>::iterator list_iter;
-    IMAGE_TYPE::iterator image_iter;
-    try {
-        for (image_iter = image->begin(), list_iter = indexed_list->begin(); image_iter != image->end() && list_iter != indexed_list->end(); image_iter++, list_iter++) {
-            node->Data = image_iter->second;
-            node->Rand = indexed_list->at(image_iter->first[RANDOM_TO]);
-            if (std::next(list_iter, 1) != indexed_list->end())
-                node->Next = (std::next(list_iter, 1))->second;
-            else
-                this->Tail = node;
-            if (list_iter != indexed_list->begin())
-                node->Prev = std::prev(list_iter, 1)->second;
-            node = node->Next;
-        }
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Associate error! Error type: " << typeid(e).name() << std::endl;
-    }
-    image->clear();
-    delete image;
-    indexed_list->clear();
-    delete indexed_list;
 }
 
